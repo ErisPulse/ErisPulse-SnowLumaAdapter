@@ -1,0 +1,37 @@
+[project]
+name = "ErisPulse-SnowLumaAdapter"
+version = "0.1.0"
+description = "ErisPulse的SnowLuma协议适配模块（NTQQ hook，OneBot v11 兼容）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [ { name = "wsu2059q", email = "wsu2059@qq.com" } ]
+dependencies = [
+    "filetype>=1.2.0",
+]
+
+# 框架为软依赖：适配器由 ErisPulse 框架加载运行，不声明硬依赖，
+# 避免 pip 解析时对框架版本做升级/降级调整。
+# 最低要求 ErisPulse>=2.7.1（BaseConverter / Api DSL / spawn_background 等特性），
+# 运行时由适配器检测并打日志提示。
+
+keywords = [
+    "erispulse",
+    "erispulse-adapter",
+    "snowluma",
+    "onebot11",
+    "ntqq",
+]
+
+[project.urls]
+"homepage" = "https://github.com/ErisPulse/ErisPulse-SnowLumaAdapter"
+
+[project.entry-points."erispulse.adapter"]
+snowluma = "SnowLumaAdapter:SnowLumaAdapter"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["SnowLumaAdapter"]
