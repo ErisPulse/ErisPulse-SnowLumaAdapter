@@ -1,19 +1,18 @@
+[English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [Русский](README.ru.md)
+
 <div align="center">
 
-<img src=".github/assets/ErisPulseLogo.png" width="180" alt="ErisPulse SnowLumaAdapter" />
+<img src="https://raw.githubusercontent.com/ErisPulse/ErisPulse/main/.github/assets/ErisPulseLogo.png" width="180" alt="ErisPulse-SnowLumaAdapter" />
 
-# ErisPulse SnowLumaAdapter
+# ErisPulse-SnowLumaAdapter
 
-**基于 NTQQ hook 的 QQ 协议适配器 —— 原生合并转发 · 全面兼容 NapCat。**
-
-基于 ErisPulse 框架的 SnowLuma 协议适配器。[SnowLuma](https://github.com/SnowLuma/SnowLuma) 通过 hook 注入 QQ 桌面客户端（NTQQ），以 OneBot v11 协议对外暴露 API；本适配器同时可直接连接 **NapCat** 后端。支持多账户、合并转发三级回退、拍一拍/QQ空间/群文件/消息历史等 60+ 类型化扩展方法。
+**ErisPulse SnowLuma adapter — NTQQ hook, native merge-forward, NapCat compatible**
 
 <p>
   <a href="https://pypi.org/project/ErisPulse-SnowLumaAdapter/"><img src="https://img.shields.io/pypi/v/ErisPulse-SnowLumaAdapter?style=for-the-badge&logo=pypi&logoColor=white" alt="PyPI"></a>
   <a href="https://pypi.org/project/ErisPulse-SnowLumaAdapter/"><img src="https://img.shields.io/badge/Python-3.10+-FFD43B?style=for-the-badge&logo=python&logoColor=blue" alt="Python"></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License"></a>
-  <a href="https://github.com/wsu2059q/ErisPulse-SnowLuma"><img src="https://img.shields.io/github/stars/wsu2059q/ErisPulse-SnowLuma?style=for-the-badge&logo=github&color=brightgreen" alt="Stars"></a>
-  <a href="https://github.com/ErisPulse/ErisPulse"><img src="https://img.shields.io/badge/Powered_by-ErisPulse-FF6B9D?style=for-the-badge&logo=bookstack&logoColor=white" alt="ErisPulse"></a>
+  <a href="https://github.com/ErisPulse/ErisPulse/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License"></a>
+  <img src="https://raw.githubusercontent.com/ErisPulse/.github/main/assets/badges/adapter.svg" alt="ErisPulse">
 </p>
 
 </div>
