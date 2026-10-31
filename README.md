@@ -6,7 +6,7 @@
 
 # ErisPulse-SnowLumaAdapter
 
-**ErisPulse SnowLuma adapter — NTQQ hook, native merge-forward, NapCat compatible**
+**ErisPulse SnowLuma 适配器 — NTQQ hook、原生合并转发、兼容 NapCat**
 
 <p>
   <a href="https://pypi.org/project/ErisPulse-SnowLumaAdapter/"><img src="https://img.shields.io/pypi/v/ErisPulse-SnowLumaAdapter?style=for-the-badge&logo=pypi&logoColor=white" alt="PyPI"></a>
