@@ -452,42 +452,89 @@ class SnowLumaAdapter(BaseAdapter):
             message_list.clear()
             message_list.extend(result)
 
-        def _file_to_base64(self, file: Union[str, bytes]) -> str:
+        def _file_to_base64(self, file: Union[str, bytes]) -> Optional[str]:
+            """bytes 转 base64://；http(s)/base64:///data: 原样透传；file:// 剥前缀；其余按本地路径读取，失败返回 None"""
             if isinstance(file, bytes):
                 return "base64://" + _base64.b64encode(file).decode("ascii")
-            elif isinstance(file, str) and not file.startswith("base64://"):
+            if not isinstance(file, str):
+                return file
+            if file.startswith(("base64://", "http://", "https://", "data:")):
+                return file
+            if file.startswith("file://"):
+                file = file[7:]
+            try:
                 with open(os.path.abspath(file), "rb") as f:
                     return "base64://" + _base64.b64encode(f.read()).decode("ascii")
-            return file
+            except Exception:
+                return None
+
+        @staticmethod
+        def _derive_filename(file: Union[str, bytes], default: str) -> str:
+            """从 file 推导文件名：URL 取 basename（剥 ?query/#fragment）、本地路径取 basename，取不到返回 default"""
+            if not isinstance(file, str) or not file:
+                return default
+            if file.startswith(("http://", "https://")):
+                path = file.split("?", 1)[0].split("#", 1)[0]
+                name = path.rstrip("/").rsplit("/", 1)[-1]
+                return name or default
+            if file.startswith(("base64://", "data:")):
+                return default
+            if file.startswith("file://"):
+                file = file[len("file://"):]
+            name = os.path.basename(file)
+            return name or default
+
+        async def _file_read_failed(self, file) -> dict:
+            """返回本地文件读取失败的标准失败响应"""
+            name = file if isinstance(file, str) else f"<{type(file).__name__}>"
+            return self._adapter.make_error(
+                retcode=10003, message=f"读取文件失败: {name}"
+            )
 
         def Text(self, text: str):
             return self.Raw_ob12([{"type": "text", "data": {"text": text}}])
 
-        def Image(self, file: Union[str, bytes], filename: str = "image.png"):
-            file = self._file_to_base64(file)
+        def Image(self, file: Union[str, bytes], filename: Optional[str] = None):
+            if not filename:
+                filename = self._derive_filename(file, "image.png")
+            converted = self._file_to_base64(file)
+            if converted is None:
+                return asyncio.create_task(self._file_read_failed(file))
             return self.Raw_ob12(
-                [{"type": "image", "data": {"file": file, "file_name": filename}}]
+                [{"type": "image", "data": {"file": converted, "file_name": filename}}]
             )
 
-        def Voice(self, file: Union[str, bytes], filename: str = "voice.amr"):
-            file = self._file_to_base64(file)
+        def Voice(self, file: Union[str, bytes], filename: Optional[str] = None):
+            if not filename:
+                filename = self._derive_filename(file, "voice.amr")
+            converted = self._file_to_base64(file)
+            if converted is None:
+                return asyncio.create_task(self._file_read_failed(file))
             return self.Raw_ob12(
-                [{"type": "audio", "data": {"file": file, "file_name": filename}}]
+                [{"type": "audio", "data": {"file": converted, "file_name": filename}}]
             )
 
-        def Video(self, file: Union[str, bytes], filename: str = "video.mp4"):
-            file = self._file_to_base64(file)
+        def Video(self, file: Union[str, bytes], filename: Optional[str] = None):
+            if not filename:
+                filename = self._derive_filename(file, "video.mp4")
+            converted = self._file_to_base64(file)
+            if converted is None:
+                return asyncio.create_task(self._file_read_failed(file))
             return self.Raw_ob12(
-                [{"type": "video", "data": {"file": file, "file_name": filename}}]
+                [{"type": "video", "data": {"file": converted, "file_name": filename}}]
             )
 
         def Face(self, id: Union[str, int]):
             return self.Raw_ob12([{"type": "face", "data": {"id": str(id)}}])
 
-        def File(self, file: Union[str, bytes], filename: str = "file.dat"):
-            file = self._file_to_base64(file)
+        def File(self, file: Union[str, bytes], filename: Optional[str] = None):
+            if not filename:
+                filename = self._derive_filename(file, "file.dat")
+            converted = self._file_to_base64(file)
+            if converted is None:
+                return asyncio.create_task(self._file_read_failed(file))
             return self.Raw_ob12(
-                [{"type": "file", "data": {"file": file, "file_name": filename}}]
+                [{"type": "file", "data": {"file": converted, "file_name": filename}}]
             )
 
         def Raw_ob12(self, message, **kwargs):
@@ -698,13 +745,15 @@ class SnowLumaAdapter(BaseAdapter):
             )
 
         def SetPortrait(self, file: Union[str, bytes]):
-            file = self._file_to_base64(file)
+            converted = self._file_to_base64(file)
+            if converted is None:
+                return asyncio.create_task(self._file_read_failed(file))
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_group_portrait",
                     _account_id=self._account_id,
                     group_id=int(self._target_id),
-                    file=file,
+                    file=converted,
                 )
             )
 
@@ -909,13 +958,15 @@ class SnowLumaAdapter(BaseAdapter):
 
         def UploadGroupFile(self, file: Union[str, bytes], name: str):
             """上传群文件（需通过 To("group", group_id) 指定群）"""
-            file = self._file_to_base64(file)
+            converted = self._file_to_base64(file)
+            if converted is None:
+                return asyncio.create_task(self._file_read_failed(file))
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="upload_group_file",
                     _account_id=self._account_id,
                     group_id=int(self._target_id),
-                    file=file,
+                    file=converted,
                     name=name,
                 )
             )
@@ -1070,16 +1121,25 @@ class SnowLumaAdapter(BaseAdapter):
                     ob11_message.append({"type": "text", "data": {"text": seg_data.get("text", "")}})
                 elif seg_type == "image":
                     file = seg_data.get("file") or seg_data.get("url", "")
+                    if isinstance(file, bytes):
+                        file = "base64://" + _base64.b64encode(file).decode("ascii")
                     ob11_message.append({"type": "image", "data": {"file": file}})
                 elif seg_type in ("audio", "record"):
                     file = seg_data.get("file") or seg_data.get("url", "")
+                    if isinstance(file, bytes):
+                        file = "base64://" + _base64.b64encode(file).decode("ascii")
                     ob11_message.append({"type": "record", "data": {"file": file}})
                 elif seg_type == "video":
                     file = seg_data.get("file") or seg_data.get("url", "")
+                    if isinstance(file, bytes):
+                        file = "base64://" + _base64.b64encode(file).decode("ascii")
                     ob11_message.append({"type": "video", "data": {"file": file}})
                 elif seg_type == "file":
                     file = seg_data.get("file") or seg_data.get("url", "")
-                    file_name = seg_data.get("file_name", "")
+                    if isinstance(file, bytes):
+                        file = "base64://" + _base64.b64encode(file).decode("ascii")
+                    # filename 为 SDK 标准键，file_name 为本适配器历史键
+                    file_name = seg_data.get("filename") or seg_data.get("file_name", "")
                     data = {"file": file}
                     if file_name:
                         data["name"] = file_name
@@ -1095,6 +1155,9 @@ class SnowLumaAdapter(BaseAdapter):
                 elif seg_type.startswith("onebot11_"):
                     ob11_message.append({"type": seg_type[10:], "data": seg_data})
                 else:
+                    self._adapter.logger.warning(
+                        f"未知的消息段类型 {seg_type!r}，原样透传给 OneBot 实现"
+                    )
                     ob11_message.append({"type": seg_type, "data": seg_data})
             return ob11_message
 
