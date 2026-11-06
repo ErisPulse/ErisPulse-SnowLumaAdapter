@@ -1187,7 +1187,6 @@ class SnowLumaAdapter(BaseAdapter):
 
     def __init__(self, sdk_ref=None):
         super().__init__(sdk_ref)
-        self._self_id_map: Dict[str, str] = {}
         self._bot_ids: Dict[str, str] = {}
         self._pending_connect_meta: set = set()
         self.connections: Dict[str, Any] = {}
@@ -1251,11 +1250,13 @@ class SnowLumaAdapter(BaseAdapter):
     def _update_bot_id(self, account_name: str, self_id: str):
         old = self._bot_ids.get(account_name)
         if not old:
-            self._bot_ids[account_name] = self_id
             self.logger.info(f"账户 {account_name} 自动识别 bot_id: {self_id}")
         elif old != self_id:
-            self._bot_ids[account_name] = self_id
             self.logger.warning(f"账户 {account_name} bot_id 变更: {old} → {self_id}")
+        self._bot_ids[account_name] = self_id
+        account = (self._accounts_data or {}).get(account_name)
+        if account is not None:
+            setattr(account, "bot_id", self_id)
 
     def _wrap_api_response(self, raw_response: Dict, endpoint: str, account_name: str) -> dict:
         """
@@ -1499,9 +1500,6 @@ class SnowLumaAdapter(BaseAdapter):
         raw_self_id = onebot_event.get("self", {}).get("user_id", "")
         if raw_self_id:
             self._update_bot_id(account_name, str(raw_self_id))
-            if str(raw_self_id) not in self._self_id_map:
-                self._self_id_map[str(raw_self_id)] = account_name
-                self.logger.info(f"映射 self_id {raw_self_id} → 账户 {account_name}")
             if account_name in self._pending_connect_meta:
                 self._pending_connect_meta.discard(account_name)
                 await self.emit_meta("connect", str(raw_self_id))
