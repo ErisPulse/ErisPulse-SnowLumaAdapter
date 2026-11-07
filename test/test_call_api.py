@@ -133,3 +133,47 @@ class TestHttpMode:
         assert "group_id" not in captured["json"]
         assert captured["json"]["user_id"] == 42
         assert captured["headers"]["Authorization"] == "Bearer s3cret"
+
+
+class TestDispatchAccountInjection:
+    """事件 self.account_id 必须携带账户名：bot_id 未回填时下游按名精确路由"""
+
+    OB11_MESSAGE = {
+        "post_type": "message",
+        "message_type": "group",
+        "self_id": 10001,
+        "user_id": 42,
+        "group_id": 123456,
+        "time": 1700000000,
+        "message": [{"type": "text", "data": {"text": "hi"}}],
+    }
+
+    def _dispatch_and_capture(self, adapter, account):
+        captured = {}
+
+        async def fake_emit(event):
+            captured.update(event)
+
+        async def run():
+            # _dispatch_event 内部 `from ErisPulse.Core import adapter` 拿到的是 Manager 实例
+            from ErisPulse.Core import adapter as adapter_mgr
+
+            with patch.object(adapter_mgr, "emit", fake_emit):
+                await adapter._dispatch_event(dict(self.OB11_MESSAGE), "default")
+
+        asyncio.run(run())
+        return captured
+
+    def test_event_self_carries_account_name(self):
+        adapter, account = make_adapter()
+        adapter.accounts["default"] = account
+        captured = self._dispatch_and_capture(adapter, account)
+        assert captured["self"]["account_id"] == "default"
+        assert captured["self"]["user_id"] == "10001"
+
+    def test_backfill_uses_event_self_id(self):
+        """事件分发同时回填 bot_id（绑定表），下游 Using(bot_id) 也能命中"""
+        adapter, account = make_adapter()
+        adapter.accounts["default"] = account
+        self._dispatch_and_capture(adapter, account)
+        assert adapter._get_bot_id("default") == "10001"

@@ -35,7 +35,7 @@ try:
 except ImportError:  # pragma: no cover
     spawn_background = None
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 # 软依赖的框架最低版本（运行时检测，仅提示不强制）
 MIN_FRAMEWORK_VERSION = (2, 7, 1)
@@ -1523,7 +1523,7 @@ class SnowLumaAdapter(BaseAdapter):
                 self.logger.info(
                     f"账户 {account_name} (bot_id: {self._bot_id_display(account_name)}) 连接成功"
                 )
-                await self.emit_meta("connect", self._get_bot_id(account_name))
+                await self.emit_meta("connect", self._get_bot_id(account_name), account_id=account_name)
                 if not self._get_bot_id(account_name):
                     self._pending_connect_meta.add(account_name)
                 await self._listen(account_name)
@@ -1570,7 +1570,7 @@ class SnowLumaAdapter(BaseAdapter):
             )
         finally:
             try:
-                await self.emit_meta("disconnect", self._get_bot_id(account_name) if account else "")
+                await self.emit_meta("disconnect", self._get_bot_id(account_name) if account else "", account_id=account_name)
             except Exception:
                 pass
             self.connections.pop(account_name, None)
@@ -1609,7 +1609,11 @@ class SnowLumaAdapter(BaseAdapter):
             self._update_bot_id(account_name, str(raw_self_id))
             if account_name in self._pending_connect_meta:
                 self._pending_connect_meta.discard(account_name)
-                await self.emit_meta("connect", str(raw_self_id))
+                await self.emit_meta("connect", str(raw_self_id), account_id=account_name)
+        # 账户名注入 self.account_id：bot_id 尚未回填（重启后未进过消息）时，
+        # 下游 reply/Using 也能按账户名精确路由，避免框架 _resolve_account
+        # 匹配失败后静默回落到第一个启用账户（张冠李戴且无日志）
+        onebot_event.setdefault("self", {})["account_id"] = account_name
         await adapter_mgr.emit(onebot_event)
 
     async def _poll_events(self, account_name: str):
@@ -1712,7 +1716,7 @@ class SnowLumaAdapter(BaseAdapter):
         if account:
             self.logger.info(f"账户 {account_name} (bot_id: {self._bot_id_display(account_name)}) 客户端已连接")
         self.connections[account_name] = websocket
-        await self.emit_meta("connect", self._get_bot_id(account_name) if account else "")
+        await self.emit_meta("connect", self._get_bot_id(account_name) if account else "", account_id=account_name)
         if account and not self._get_bot_id(account_name):
             self._pending_connect_meta.add(account_name)
         try:
@@ -1723,7 +1727,7 @@ class SnowLumaAdapter(BaseAdapter):
             self.logger.info(f"账户 {account_name} (bot_id: {self._bot_id_display(account_name) if account else ''}) 客户端断开连接")
         finally:
             try:
-                await self.emit_meta("disconnect", self._get_bot_id(account_name) if account else "")
+                await self.emit_meta("disconnect", self._get_bot_id(account_name) if account else "", account_id=account_name)
             except Exception:
                 pass
             if account_name in self.connections:
