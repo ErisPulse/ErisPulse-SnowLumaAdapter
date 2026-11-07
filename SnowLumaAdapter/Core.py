@@ -35,13 +35,14 @@ try:
 except ImportError:  # pragma: no cover
     spawn_background = None
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 # 软依赖的框架最低版本（运行时检测，仅提示不强制）
 MIN_FRAMEWORK_VERSION = (2, 7, 1)
 
 from .i18n import SnowLumaI18n
 from .ob11_extensions import OB11ExtensionApi
+from .snowluma_extensions import SnowLumaExtensionApi
 
 
 def _forward_node_text(node: Dict) -> str:
@@ -260,12 +261,14 @@ class SnowLumaAdapter(BaseAdapter):
             """判断是否为系统消息"""
             return self.get("sub_type") == "system"
 
-    class Api(BaseAdapter.Api, OB11ExtensionApi):
+    class Api(BaseAdapter.Api, OB11ExtensionApi, SnowLumaExtensionApi):
         """
         SnowLuma 标准 API 动作实现（ApiDSL）
 
         复用 OB11 动作名映射，SnowLuma 原生支持所有 OB11 标准动作。
-        混入 OB11ExtensionApi 提供 NapCat/SnowLuma 兼容扩展动作的类型化方法。
+        混入 OB11ExtensionApi（NapCat/SnowLuma/Lagrange 通用扩展）
+        与 SnowLumaExtensionApi（SnowLuma 特有：群相册/系统表情/流式/闪传/收藏表情），
+        覆盖官方全部 200 个动作中的通用与高频部分。
 
         {!--< tips >!--}
         1. get_self_info → get_login_info（字段标准化）
@@ -274,6 +277,7 @@ class SnowLumaAdapter(BaseAdapter):
         4. leave_group → set_group_leave（动作名映射）
         5. upload_file 扩展了 group_id/user_id 参数
         6. OB11 协议扩展（send_poke/get_group_msg_history 等）通过 call("action_name", ...) 直接调用（NapCat/SnowLuma 通用）
+        7. 未封装的少数动作（如别名 upload_foward_msg）可通过 call_api 透明调用
         {!--< /tips >!--}
         """
 
@@ -982,15 +986,16 @@ class SnowLumaAdapter(BaseAdapter):
                 )
             )
 
-        def MarkMsgAsRead(self):
-            """标记消息已读（群聊/私聊自动路由，需通过 To() 指定目标）"""
+        def MarkMsgAsRead(self, message_id: Union[str, int]):
+            """标记消息已读（服务端按消息自动路由群聊/私聊）"""
+            params = {"message_id": int(message_id)}
+            if self._target_id:
+                params["target_id"] = int(self._target_id)
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="mark_msg_as_read",
                     _account_id=self._account_id,
-                    message_type="private" if self._target_type == "user" else "group",
-                    user_id=int(self._target_id) if self._target_type == "user" else None,
-                    group_id=int(self._target_id) if self._target_type == "group" else None,
+                    **params,
                 )
             )
 
@@ -1004,15 +1009,16 @@ class SnowLumaAdapter(BaseAdapter):
                 )
             )
 
-        def GetGroupMsgHistory(self, message_seq: int = 0, count: int = 20):
-            """获取群消息历史（需通过 To("group", group_id) 指定群）"""
+        def GetGroupMsgHistory(self, message_id: int = 0, count: int = 20):
+            """获取群消息历史（需通过 To("group", group_id) 指定群；message_id=0 从最新开始）"""
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_group_msg_history",
                     _account_id=self._account_id,
                     group_id=int(self._target_id),
-                    message_seq=int(message_seq),
+                    message_id=int(message_id),
                     count=int(count),
+                    reverse_order=True,
                 )
             )
 
@@ -1036,7 +1042,7 @@ class SnowLumaAdapter(BaseAdapter):
                     group_id=int(self._target_id),
                     message_id=int(message_id),
                     code=str(emoji_id),
-                    is_enable=enable,
+                    is_set=enable,
                 )
             )
 
@@ -1102,13 +1108,114 @@ class SnowLumaAdapter(BaseAdapter):
                 )
             )
 
-        def FetchPttText(self, file: str):
-            """语音转文字"""
+        def FetchPttText(self, message_id: Union[str, int]):
+            """语音转文字（按语音消息 ID 定位）"""
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="fetch_ptt_text",
                     _account_id=self._account_id,
-                    file=file,
+                    message_id=int(message_id),
+                )
+            )
+
+        def AIRecord(self, character: str, text: str, chat_type: int = 1):
+            """
+            发送 AI 语音到群（需通过 To("group", group_id) 指定群）
+
+            :param character: AI 语音角色 ID（来自 Api.get_ai_characters）
+            """
+            return asyncio.create_task(
+                self._adapter.call_api(
+                    endpoint="send_group_ai_record",
+                    _account_id=self._account_id,
+                    group_id=int(self._target_id),
+                    character=str(character),
+                    text=text,
+                    chat_type=int(chat_type),
+                )
+            )
+
+        def CustomFace(self, emoji_id: str, reply_to: Union[str, int, None] = None):
+            """
+            发送账号收藏表情到当前会话（保留表情显示样式，群聊/私聊自动路由）
+
+            :param emoji_id: 收藏表情的完整 ID 或 32 位 MD5
+            :param reply_to: 可选回复消息 ID
+            """
+            params: Dict[str, Any] = {"emoji_id": str(emoji_id)}
+            if self._target_type == "group":
+                params["group_id"] = int(self._target_id)
+            else:
+                params["user_id"] = int(self._target_id)
+            if reply_to is not None:
+                params["reply_to"] = int(reply_to)
+            return asyncio.create_task(
+                self._adapter.call_api(
+                    endpoint="send_custom_face",
+                    _account_id=self._account_id,
+                    **params,
+                )
+            )
+
+        def FlashMsg(self, fileset_id: str):
+            """
+            发送闪传消息到当前会话（引用 fileset_id 让对端下载，群聊/私聊自动路由）
+            """
+            params: Dict[str, Any] = {"fileset_id": str(fileset_id)}
+            if self._target_type == "group":
+                params["group_id"] = int(self._target_id)
+            else:
+                params["user_id"] = int(self._target_id)
+            return asyncio.create_task(
+                self._adapter.call_api(
+                    endpoint="send_flash_msg",
+                    _account_id=self._account_id,
+                    **params,
+                )
+            )
+
+        def ForwardSingle(self, message_id: Union[str, int]):
+            """转发单条消息到当前会话（群聊/私聊自动路由）"""
+            params: Dict[str, Any] = {"message_id": int(message_id)}
+            if self._target_type == "group":
+                endpoint = "forward_group_single_msg"
+                params["group_id"] = int(self._target_id)
+            else:
+                endpoint = "forward_friend_single_msg"
+                params["user_id"] = int(self._target_id)
+            return asyncio.create_task(
+                self._adapter.call_api(
+                    endpoint=endpoint,
+                    _account_id=self._account_id,
+                    **params,
+                )
+            )
+
+        def TuwenArk(
+            self,
+            title: str,
+            desc: str,
+            jump_url: str,
+            summary: str = "[分享]",
+            preview_url: str = "https://tangram-1251316161.file.myqcloud.com/files/20210721/e50a8e37e08f29bf1ffc7466e1950690.png",
+        ):
+            """发送图文 Ark 卡片到当前会话（群聊/私聊自动路由）"""
+            params: Dict[str, Any] = {
+                "title": title,
+                "desc": desc,
+                "jump_url": jump_url,
+                "summary": summary,
+                "preview_url": preview_url,
+            }
+            if self._target_type == "group":
+                params["group_id"] = int(self._target_id)
+            else:
+                params["user_id"] = int(self._target_id)
+            return asyncio.create_task(
+                self._adapter.call_api(
+                    endpoint="send_tuwen_ark",
+                    _account_id=self._account_id,
+                    **params,
                 )
             )
 

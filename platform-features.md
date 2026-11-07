@@ -29,10 +29,13 @@ enabled = true
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
-| `mode` | `"client"` | server(被动) 或 client(主动) |
+| `mode` | `"client"` | `client`(主动连 WS) / `server`(反向 WS) / `http`(HTTP API+轮询) / `webhook`(HTTP API+上报) |
 | `url` | `"ws://127.0.0.1:3001"` | Client 模式 WS 地址 |
 | `token` | `""` | Bearer 认证令牌 |
 | `server_path` | `"/"` | Server 模式 WS 路径 |
+| `http_url` | `"http://127.0.0.1:3000"` | http/webhook 模式的 API 地址 |
+| `poll_interval` | `1.0` | http 模式事件轮询间隔（秒） |
+| `webhook_path` | `"/snowluma_{account}"` | webhook 模式上报路由前缀 |
 
 ## 标准 API 动作（ApiDSL）
 
@@ -59,7 +62,7 @@ await snowluma.Api.upload_file(type="url", name="img.jpg", url="https://...", us
 
 ## OB11 协议扩展
 
-SnowLuma 兼容 NapCat/go-cqhttp 扩展接口（109 个动作）。这些是 **OB11 协议级扩展**，不加平台前缀，NapCat/Lagrange 等后端通用。
+SnowLuma 兼容 NapCat/go-cqhttp 扩展接口，官方动作目录共 **200 个动作**。适配器类型化封装 169 个（127 个通用 + 42 个 SnowLuma 特有），其余为 Core 直调 / ApiDSL 透传 / 服务端别名，完整对照见 [docs/api-coverage.md](docs/api-coverage.md)。这些是 **OB11 协议级扩展**，不加平台前缀，NapCat/Lagrange 等后端通用（SnowLuma 特有部分除外）。
 
 ### 类型化 Api 方法（推荐，带 IDE 补全）
 
@@ -76,10 +79,10 @@ await snowluma.Api.friend_poke(user_id=789)
 # 消息回应
 await snowluma.Api.set_msg_emoji_like(message_id=123, emoji_id="76")
 await snowluma.Api.set_essence_msg(message_id=123)
-result = await snowluma.Api.get_essence_msg_list(group_id=123456)
+result = await snowluma.Api.get_msg_emoji_likes(message_id=123)
 
 # 已读 / 状态
-await snowluma.Api.mark_msg_as_read(group_id=123456)
+await snowluma.Api.mark_msg_as_read(message_id=123)
 await snowluma.Api.set_online_status(status=11)
 
 # 消息历史
@@ -90,31 +93,49 @@ result = await snowluma.Api.get_friend_msg_history(user_id=789, count=20)
 await snowluma.Api.set_group_reaction(group_id=123456, message_id=123, code="76")
 await snowluma.Api.set_group_sign(group_id=123456)
 await snowluma.Api.set_group_remark(group_id=123456, remark="我的群")
+await snowluma.Api.set_group_kick_members(group_id=123456, user_id=[111, 222])
+await snowluma.Api.set_group_member_invite_policy(group_id=123456, policy="require_approval")
 
 # 群文件
 result = await snowluma.Api.get_group_file_url(group_id=123456, file_id="abc")
 result = await snowluma.Api.get_group_root_files(group_id=123456)
+await snowluma.Api.move_group_file(group_id=123456, file_id="abc", parent_directory="/", target_directory="/backup")
 
-# QQ 空间
-await snowluma.Api.send_qzone_msg(content="发表说说")
-await snowluma.Api.like_qzone(tid="tid_123")
-result = await snowluma.Api.get_qzone_feeds(page_num=0)
+# QQ 空间（含说说详情 / 权限 / 拉黑）
+await snowluma.Api.send_qzone_msg(content="带图说说", images=["https://a.jpg"], ugc_right=4)
+result = await snowluma.Api.get_qzone_msg_detail(tid="tid_123")
+await snowluma.Api.set_qzone_msg_right(tid="tid_123", ugc_right=64)
+await snowluma.Api.set_qzone_ban(user_id=789)
+
+# 群相册（SnowLuma 特有）
+await snowluma.Api.upload_image_to_qun_album(group_id=123456, album_id="a1", album_name="相册", file="https://a.jpg")
+await snowluma.Api.upload_video_to_qun_album(group_id=123456, album_id="a1", album_name="相册", file="./v.mp4")
+
+# 系统表情 / AI 语音
+result = await snowluma.Api.fetch_sys_faces()
+result = await snowluma.Api.search_sys_faces(query="微笑")
+await snowluma.Api.send_group_ai_record(group_id=123456, character="1002", text="你好")
+
+# 群公告 / 荣誉 / 分享链接
+await snowluma.Api.send_group_notice(group_id=123456, content="公告", pinned=1)
+result = await snowluma.Api.get_group_honor_info(group_id=123456)
+result = await snowluma.Api.get_group_share_link(group_id=123456)
 
 # 媒体 / OCR
 result = await snowluma.Api.ocr_image(image="https://example.com/img.png")
 result = await snowluma.Api.get_image(file="abc.png")
-result = await snowluma.Api.fetch_ptt_text(file="voice.silk")
+result = await snowluma.Api.fetch_ptt_text(message_id=123)
 
 # 凭证
 result = await snowluma.Api.get_cookies(domain="qzone.qq.com")
 result = await snowluma.Api.get_csrf_token()
 ```
 
-### Api.call 逃生舱（未封装的动作用）
+### Api.call 逃生舱（别名等少数动作）
 
 ```python
-# 少数未封装的动作用 call() 直接调用
-result = await snowluma.Api.call("send_group_ai_record", group_id=123456, content="...")
+# 全部 200 个官方动作已封装或直调；服务端别名可用 call() 透明调用
+result = await snowluma.Api.call("upload_foward_msg", messages=[...])  # upload_forward_msg 的别名
 ```
 
 > **命名约定**：OB11 协议扩展直接用动作名（`send_poke`），不加 `snowluma.` 前缀。只有真正平台独有的功能才用 `{prefix}.xxx`。
@@ -140,9 +161,9 @@ result = await snowluma.Api.call("send_group_ai_record", group_id=123456, conten
 | `.SetMsgEmojiLike(msg_id, emoji_id)` | `set_msg_emoji_like` | 消息表情回应 |
 | `.UploadGroupFile(file, name)` | `upload_group_file` | 上传群文件（需 To("group", gid)） |
 | `.GetGroupFileUrl(file_id)` | `get_group_file_url` | 群文件下载链接 |
-| `.MarkMsgAsRead()` | `mark_msg_as_read` | 标记已读（需 To()） |
+| `.MarkMsgAsRead(msg_id)` | `mark_msg_as_read` | 标记已读（按消息 ID） |
 | `.SetOnlineStatus(status)` | `set_online_status` | 设置在线状态 |
-| `.GetGroupMsgHistory(seq, count)` | `get_group_msg_history` | 群消息历史 |
+| `.GetGroupMsgHistory(message_id, count)` | `get_group_msg_history` | 群消息历史 |
 | `.GetFriendMsgHistory(uid, count)` | `get_friend_msg_history` | 好友消息历史 |
 | `.GroupReaction(msg_id, emoji_id)` | `set_group_reaction` | 群表情回应 |
 | `.SetEssenceMsg(msg_id)` | `set_essence_msg` | 设置精华消息 |
@@ -151,7 +172,12 @@ result = await snowluma.Api.call("send_group_ai_record", group_id=123456, conten
 | `.OcrImage(image)` | `ocr_image` | OCR 图片识别 |
 | `.GetImage(file)` | `get_image` | 获取图片信息 |
 | `.GetRecord(file)` | `get_record` | 获取语音信息 |
-| `.FetchPttText(file)` | `fetch_ptt_text` | 语音转文字 |
+| `.FetchPttText(message_id)` | `fetch_ptt_text` | 语音转文字 |
+| `.AIRecord(character, text)` | `send_group_ai_record` | AI 语音到群（需 To("group", gid)） |
+| `.CustomFace(emoji_id)` | `send_custom_face` | 发送收藏表情（自动路由） |
+| `.FlashMsg(fileset_id)` | `send_flash_msg` | 发送闪传消息（自动路由） |
+| `.ForwardSingle(message_id)` | `forward_group/friend_single_msg` | 转发单条消息（自动路由） |
+| `.TuwenArk(title, desc, jump_url)` | `send_tuwen_ark` | 图文 Ark 卡片（自动路由） |
 
 ```python
 snowluma = sdk.adapter.get("snowluma")
@@ -164,12 +190,19 @@ await snowluma.Send.QzoneLike("tid_123")
 await snowluma.Send.To("group", 123456).GroupPoke(789012)
 await snowluma.Send.To("group", 123456).UploadGroupFile("./doc.pdf", "文档.pdf")
 
+# 发送到会话（自动路由群聊/私聊）
+await snowluma.Send.To("group", 123456).AIRecord("1002", "你好")        # AI 语音
+await snowluma.Send.To("user", 789012).CustomFace("emoji_id_or_md5")   # 收藏表情
+await snowluma.Send.To("group", 123456).FlashMsg("fileset_id")         # 闪传消息
+await snowluma.Send.To("group", 123456).ForwardSingle("msg_123")       # 单条转发
+await snowluma.Send.To("group", 123456).TuwenArk("标题", "描述", "https://jump.url")
+
 # 消息回应
 await snowluma.Send.SetMsgEmojiLike("msg_123", "76")
 await snowluma.Send.SetEssenceMsg("msg_123")
 
-# 标记已读
-await snowluma.Send.To("group", 123456).MarkMsgAsRead()
+# 标记已读（按消息 ID）
+await snowluma.Send.MarkMsgAsRead("msg_123")
 ```
 
 ## 事件类型

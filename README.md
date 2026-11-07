@@ -24,8 +24,11 @@
 - **完整 OneBot v11 协议**：OB12 标准 ApiDSL 自动映射动作名（`get_self_info` → `get_login_info` 等）
 - **合并转发**：`MergeForward` 三级回退（专用端点 → `upload_forward_msg` resid → 直发 node 段），`Raw_ob12` 纯 node 段自动路由
 - **全面兼容 NapCat**：`url` 指向 NapCat 正向 WS 即可直接使用，或以 server 模式接收 NapCat 反向 WS
-- **60+ 类型化扩展方法**（IDE 补全）：拍一拍 / QQ空间 / 群文件 / 群相册 / 消息历史 / 精华 / 已读状态 / OCR 等
-- **109 个扩展动作**均可通过 `Api.call("action_name", ...)` 调用（NapCat/SnowLuma 通用）
+- **169 个类型化封装方法**（IDE 补全），覆盖官方全部 **200 个动作**（[覆盖对照表](docs/api-coverage.md)）：
+  拍一拍 / QQ空间（含说说详情、拉黑、权限）/ 群相册（含上传图片视频）/ 群文件全管理 / AI 语音 /
+  系统表情 / 流式上传下载 / 闪传 / 收藏表情 / 消息历史 / 精华 / 已读状态 / OCR / Ark 卡片 等
+- **Send 快捷封装**：`AIRecord`（AI 语音）/ `CustomFace`（收藏表情）/ `FlashMsg`（闪传）/
+  `ForwardSingle`（单条转发）/ `TuwenArk`（图文卡片）等，群聊/私聊自动路由
 - **多账户 + bot_id 自动识别**：无需配置 QQ 号，`event.reply()` 自动路由到来源账户
 - **5 语言 i18n**（zh-CN / zh-TW / en / ja / ru）
 
@@ -151,11 +154,20 @@ await snowluma.Api.set_msg_emoji_like(message_id=123, emoji_id="76")
 result = await snowluma.Api.get_group_msg_history(group_id=123456, count=20)
 result = await snowluma.Api.get_group_file_url(group_id=123456, file_id="...")
 
+# QQ 空间（说说详情/评论/点赞/权限/拉黑）
+result = await snowluma.Api.get_qzone_msg_detail(tid="xxx")
+await snowluma.Api.send_qzone_msg(content="带图说说", images=["https://a.jpg"], ugc_right=4)
+
+# 群相册上传 / 系统表情 / AI 语音
+await snowluma.Api.upload_image_to_qun_album(group_id=123, album_id="a1", album_name="相册", file="base64://...")
+faces = await snowluma.Api.fetch_sys_faces()
+await snowluma.Api.send_group_ai_record(group_id=123, character="1002", text="你好")
+
 # 解析已收到的合并转发消息（入站 forward 段 data.id 为 resid）
 result = await snowluma.Api.get_forward_msg(id="resid_xxx")
 
-# 未封装的动作用 call()（NapCat/SnowLuma 通用）
-result = await snowluma.Api.call("send_group_ai_record", group_id=123456, content="...")
+# 极少数未封装动作（如别名）用 call() 透明调用
+result = await snowluma.Api.call("get_group_signed_list", group_id=123456)
 ```
 
 ## 事件
