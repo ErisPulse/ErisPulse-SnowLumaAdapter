@@ -1,6 +1,6 @@
 [project]
 name = "ErisPulse-SnowLumaAdapter"
-version = "0.3.1"
+version = "0.3.2"
 description = "ErisPulse的SnowLuma协议适配模块（NTQQ hook，OneBot v11 兼容）"
 readme = "README.md"
 requires-python = ">=3.10"

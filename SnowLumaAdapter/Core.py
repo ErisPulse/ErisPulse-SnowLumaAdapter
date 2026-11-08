@@ -35,7 +35,7 @@ try:
 except ImportError:  # pragma: no cover
     spawn_background = None
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 # 软依赖的框架最低版本（运行时检测，仅提示不强制）
 MIN_FRAMEWORK_VERSION = (2, 7, 1)
@@ -1513,12 +1513,18 @@ class SnowLumaAdapter(BaseAdapter):
 
         url = account.url
 
+        url = account.url
+        attempt = 0
         while self._running:
+            attempt += 1
             try:
-                self.logger.debug(
-                    f"账户 {account_name} 正在连接: url={url}, token={'***' if headers.get('Authorization') else '(none)'}"
+                self.logger.info(
+                    f"账户 {account_name} (bot_id: {self._bot_id_display(account_name)}) "
+                    f"正在连接(第 {attempt} 次): {url}, "
+                    f"token={'***' if headers.get('Authorization') else '(none)'}"
                 )
                 ws = await client.ws_connect(url, headers=headers)
+                attempt = 0
                 self.connections[account_name] = ws
                 self.logger.info(
                     f"账户 {account_name} (bot_id: {self._bot_id_display(account_name)}) 连接成功"
