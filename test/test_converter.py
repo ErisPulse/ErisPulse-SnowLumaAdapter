@@ -94,7 +94,7 @@ class TestBotStatus:
 
     def test_online_to_connect(self):
         c = make_converter().convert(self.bot_status_event("online"))
-        assert c["type"] == "meta_event"
+        assert c["type"] == "meta"
         assert c["detail_type"] == "connect"
         assert c["sub_type"] == "online"
         assert c["user_id"] == "10000"

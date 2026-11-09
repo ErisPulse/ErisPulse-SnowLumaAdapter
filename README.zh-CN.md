@@ -162,6 +162,25 @@ result = await snowluma.Api.call("send_group_ai_record", group_id=123456, conten
 
 事件遵循 OneBot12 规范：消息事件 `detail_type` 为 `private` / `group`，通知事件映射为标准命名；平台特有事件（poke/honor 等）使用 `snowluma_` 前缀，未识别的 CQ 码以 `onebot11_{type}` 透传，原始数据保留在 `snowluma_raw` 字段。
 
+## 请求处理
+
+好友请求与群请求（加群申请/邀请）转换为标准 `request` 事件：`detail_type` 为 `friend` / `group`，群请求带 `sub_type`（`add` 加群申请 / `invite` 群邀请），`request_id` 即 OB11 的 `flag`。用 Request DSL 同意或拒绝：
+
+```python
+from ErisPulse.Core.Event import request
+
+@request.on_request()
+async def handle_request(event):
+    if event.get_platform() == "snowluma":
+        await snowluma.Request(event.get("request_id")).accept()  # 或 .reject()
+```
+
+适配器在收到请求事件时留存 `request_id → {请求类型, 子类型, 群号, 账户}` 上下文（TTL 1 小时，容量上限 512 条，操作成功后清理），受理时据此自动路由端点：群请求走 `set_group_add_request`，好友请求走 `set_friend_add_request`。多账户下未显式 `Using()` 时按事件到达账户受理；上下文过期丢失时回退好友端点并输出 WARNING，也可显式传参覆盖：
+
+```python
+await snowluma.Request(flag).accept(request_type="group", sub_type="invite", group_id=123456)
+```
+
 ## 依赖
 
 - `filetype`：媒体类型检测

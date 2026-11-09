@@ -20,6 +20,7 @@ import base64 as _base64
 import itertools
 import json
 import os
+import time
 import warnings
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
@@ -35,7 +36,7 @@ try:
 except ImportError:  # pragma: no cover
     spawn_background = None
 
-__version__ = "0.3.2"
+__version__ = "0.3.4"
 
 # 软依赖的框架最低版本（运行时检测，仅提示不强制）
 MIN_FRAMEWORK_VERSION = (2, 7, 1)
@@ -227,6 +228,10 @@ class SnowLumaAdapter(BaseAdapter):
     ConfigClass = SnowLumaGlobalConfig
     AccountConfigClass = SnowLumaAccountConfig
     I18nClass = SnowLumaI18n
+
+    # 请求上下文留存：request_id → {request_type, sub_type, group_id, account, ts}
+    _REQ_CTX_TTL = 3600
+    _REQ_CTX_MAX = 512
 
     class EventMixin:
         """
@@ -564,7 +569,7 @@ class SnowLumaAdapter(BaseAdapter):
             async def _do_send():
                 return await self._adapter.call_api(
                     endpoint="send_msg",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     message_type="private" if self._target_type == "user" else "group",
                     user_id=int(self._target_id) if self._target_type == "user" else None,
                     group_id=int(self._target_id) if self._target_type == "group" else None,
@@ -606,7 +611,7 @@ class SnowLumaAdapter(BaseAdapter):
             try:
                 result = await self._adapter.call_api(
                     endpoint=endpoint,
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     messages=nodes,
                     **target,
                     **kwargs,
@@ -622,7 +627,7 @@ class SnowLumaAdapter(BaseAdapter):
             try:
                 upload = await self._adapter.call_api(
                     endpoint="upload_forward_msg",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     messages=nodes,
                 )
                 resid = None
@@ -633,7 +638,7 @@ class SnowLumaAdapter(BaseAdapter):
                 if resid:
                     result = await self._adapter.call_api(
                         endpoint="send_msg",
-                        _account_id=self._account_id,
+                        _account_id=self.send_context.get("account_id"),
                         message=[{"type": "forward", "data": {"id": str(resid)}}],
                         **target,
                         **kwargs,
@@ -648,7 +653,7 @@ class SnowLumaAdapter(BaseAdapter):
             # ③ 回退：send_msg 直发 node 段
             return await self._adapter.call_api(
                 endpoint="send_msg",
-                _account_id=self._account_id,
+                _account_id=self.send_context.get("account_id"),
                 message=nodes,
                 **target,
                 **kwargs,
@@ -658,7 +663,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="delete_msg",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     message_id=int(message_id),
                 )
             )
@@ -667,7 +672,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_group_kick",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     user_id=int(user_id),
                     reject_add_request=reject_add_request,
@@ -678,7 +683,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_group_ban",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     user_id=int(user_id),
                     duration=duration,
@@ -689,7 +694,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_group_whole_ban",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     enable=enable,
                 )
@@ -699,7 +704,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_group_admin",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     user_id=int(user_id),
                     enable=enable,
@@ -710,7 +715,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_group_card",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     user_id=int(user_id),
                     card=card,
@@ -721,7 +726,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_group_name",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     group_name=name,
                 )
@@ -731,7 +736,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_group_leave",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     is_dismiss=is_dismiss,
                 )
@@ -741,7 +746,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_group_special_title",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     user_id=int(user_id),
                     special_title=title,
@@ -755,7 +760,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_group_portrait",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     file=converted,
                 )
@@ -766,7 +771,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_like",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     user_id=int(user_id),
                     times=times,
                 )
@@ -780,7 +785,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_msg",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     message_id=int(message_id),
                 )
             )
@@ -791,7 +796,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_forward_msg",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     id=str(id),
                 )
             )
@@ -802,7 +807,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_login_info",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                 )
             )
 
@@ -812,7 +817,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_friend_list",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                 )
             )
 
@@ -822,7 +827,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_group_info",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                 )
             )
@@ -833,7 +838,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_group_list",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                 )
             )
 
@@ -845,7 +850,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_group_member_info",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     user_id=int(user_id),
                 )
@@ -859,7 +864,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_group_member_list",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                 )
             )
@@ -871,7 +876,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_qzone_msg",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     content=content,
                 )
             )
@@ -881,7 +886,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="like_qzone",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     tid=str(tid),
                 )
             )
@@ -891,7 +896,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="unlike_qzone",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     tid=str(tid),
                 )
             )
@@ -901,7 +906,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="comment_qzone",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     tid=str(tid),
                     content=content,
                 )
@@ -912,7 +917,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="delete_qzone_msg",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     tid=str(tid),
                 )
             )
@@ -922,7 +927,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="group_poke",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     user_id=int(user_id),
                 )
@@ -933,7 +938,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="friend_poke",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     user_id=int(user_id),
                 )
             )
@@ -943,7 +948,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_poke",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     user_id=int(user_id),
                     group_id=int(self._target_id) if self._target_type == "group" else None,
                 )
@@ -954,7 +959,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_msg_emoji_like",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     message_id=int(message_id),
                     emoji_id=str(emoji_id),
                 )
@@ -968,7 +973,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="upload_group_file",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     file=converted,
                     name=name,
@@ -980,7 +985,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_group_file_url",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     file_id=str(file_id),
                 )
@@ -994,7 +999,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="mark_msg_as_read",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     **params,
                 )
             )
@@ -1004,7 +1009,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_online_status",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     status=int(status),
                 )
             )
@@ -1014,7 +1019,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_group_msg_history",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     message_id=int(message_id),
                     count=int(count),
@@ -1027,7 +1032,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_friend_msg_history",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     user_id=int(user_id),
                     count=int(count),
                 )
@@ -1038,7 +1043,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_group_reaction",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     message_id=int(message_id),
                     code=str(emoji_id),
@@ -1051,7 +1056,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_essence_msg",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     message_id=int(message_id),
                 )
             )
@@ -1061,7 +1066,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="delete_essence_msg",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     message_id=int(message_id),
                 )
             )
@@ -1071,7 +1076,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="set_friend_remark",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     user_id=int(user_id),
                     remark=remark,
                 )
@@ -1082,7 +1087,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="ocr_image",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     image=image,
                 )
             )
@@ -1092,7 +1097,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_image",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     file=file,
                 )
             )
@@ -1102,7 +1107,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="get_record",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     file=file,
                     out_format=out_format,
                 )
@@ -1113,7 +1118,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="fetch_ptt_text",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     message_id=int(message_id),
                 )
             )
@@ -1127,7 +1132,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_group_ai_record",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     group_id=int(self._target_id),
                     character=str(character),
                     text=text,
@@ -1152,7 +1157,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_custom_face",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     **params,
                 )
             )
@@ -1169,7 +1174,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_flash_msg",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     **params,
                 )
             )
@@ -1186,7 +1191,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint=endpoint,
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     **params,
                 )
             )
@@ -1214,7 +1219,7 @@ class SnowLumaAdapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_tuwen_ark",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     **params,
                 )
             )
@@ -1269,7 +1274,25 @@ class SnowLumaAdapter(BaseAdapter):
             return ob11_message
 
     class Request(RequestDSL):
-        """SnowLuma 请求处理 DSL（基于 OB11 协议）"""
+        """SnowLuma 请求处理 DSL（基于 OB11 协议）
+
+        端点路由优先级：kwargs 显式传参 > 事件留存上下文 > 回退好友端点并告警。
+        """
+
+        def _route(self, **kwargs) -> dict[str, Any]:
+            # 只取标准路由参数；_request_type 等下划线私有名一律忽略
+            cached = self._adapter._request_ctx.get(self._request_id, {})
+            ctx = {
+                k: kwargs.get(k) or cached.get(k)
+                for k in ("request_type", "sub_type", "group_id")
+            }
+            ctx["account"] = kwargs.get("account") or cached.get("account")
+            if not ctx["request_type"]:
+                self._adapter.logger.warning(
+                    f"请求 {self._request_id} 类型未知，按好友端点回退"
+                )
+                ctx["request_type"] = "friend"
+            return ctx
 
         async def _do_accept(self, **kwargs) -> dict[str, Any]:
             return await self._do_action(approve=True, **kwargs)
@@ -1278,19 +1301,29 @@ class SnowLumaAdapter(BaseAdapter):
             return await self._do_action(approve=False, **kwargs)
 
         async def _do_action(self, approve: bool, **kwargs) -> dict[str, Any]:
+            ctx = self._route(**kwargs)
+            account = self._account_id or ctx.get("account")
             try:
-                result = await self._adapter.call_api(
-                    endpoint="set_friend_add_request"
-                    if kwargs.get("_request_type") != "group"
-                    else "set_group_add_request",
-                    _account_id=self._account_id,
-                    flag=self._request_id,
-                    approve=approve,
-                    **{k: v for k, v in kwargs.items() if not k.startswith("_")},
-                )
-                return result
+                if ctx["request_type"] == "group":
+                    result = await self._adapter.call_api(
+                        endpoint="set_group_add_request",
+                        _account_id=account,
+                        flag=self._request_id,
+                        sub_type=ctx.get("sub_type") or "add",
+                        approve=approve,
+                    )
+                else:
+                    result = await self._adapter.call_api(
+                        endpoint="set_friend_add_request",
+                        _account_id=account,
+                        flag=self._request_id,
+                        approve=approve,
+                    )
             except Exception as e:
                 return self._adapter.make_error(message=str(e))
+            if result.get("status") == "ok":
+                self._adapter._request_ctx.pop(self._request_id, None)
+            return result
 
     def __init__(self, sdk_ref=None):
         super().__init__(sdk_ref)
@@ -1302,6 +1335,7 @@ class SnowLumaAdapter(BaseAdapter):
         self.poll_tasks: Dict[str, asyncio.Task] = {}
         # WS 请求 echo 关联用自增序列：hash() 在并发同参数调用时会碰撞串台
         self._echo_seq = itertools.count(1)
+        self._request_ctx: Dict[str, Dict[str, Any]] = {}
         self._running = False
         self.default_timeout = 30
         self.default_retry_interval = 30
@@ -1314,6 +1348,30 @@ class SnowLumaAdapter(BaseAdapter):
 
         self._check_framework_version()
         self._get_logger().info(f"SnowLumaAdapter v{__version__} 已加载")
+
+    def remember_request(
+        self,
+        request_id: str,
+        *,
+        request_type: str,
+        sub_type: Optional[str] = None,
+        group_id: Optional[str] = None,
+        account: Optional[str] = None,
+    ):
+        """事件侧留存请求上下文，accept/reject 按此路由端点与账户"""
+        now = time.time()
+        expired = [k for k, c in self._request_ctx.items() if now - c["ts"] > self._REQ_CTX_TTL]
+        for k in expired:
+            self._request_ctx.pop(k)
+        while len(self._request_ctx) >= self._REQ_CTX_MAX:
+            self._request_ctx.pop(min(self._request_ctx, key=lambda k: self._request_ctx[k]["ts"]))
+        self._request_ctx[request_id] = {
+            "request_type": request_type,
+            "sub_type": sub_type,
+            "group_id": group_id,
+            "account": account,
+            "ts": now,
+        }
 
     @staticmethod
     def _parse_version(version_str: str) -> tuple:
@@ -1410,12 +1468,12 @@ class SnowLumaAdapter(BaseAdapter):
                 f"账户 {account_name} (bot_id: {self._bot_id_display(account_name)}) HTTP 调用失败: {endpoint}: {e}"
             )
             return self.make_error(
-                retcode=34001, message=f"HTTP 调用失败: {e}", raw=None
+                retcode=33001, message=f"HTTP 调用失败: {e}", raw=None
             )
 
         if not isinstance(raw_response, dict):
             return self.make_error(
-                retcode=34002,
+                retcode=34100,
                 message=f"HTTP 响应格式异常: {str(raw_response)[:200]}",
                 raw=raw_response,
             )
@@ -1433,9 +1491,9 @@ class SnowLumaAdapter(BaseAdapter):
         :param params: API 参数
         :return: 标准响应结果
         """
-        account_name, account = self._resolve_account(_account_id)
-        # 吸收 ApiDSL._merge_context 传入的 account_id
-        params.pop("account_id", None)
+                # 标准字段 account_id 与旧名 _account_id 双兼容（ApiDSL.Using 传标准名）
+        account_id = params.pop("account_id", None) or _account_id
+        account_name, account = self._resolve_account(account_id)
         # 剥离 None 参数——OneBot 11 约定缺省参数应省略而非传 null，
         # OneBot 实现的参数校验会拒绝 null 值（如私聊 send_msg 携带 group_id: null
         # 报 retcode 1400 "expected a positive integer"），导致消息静默未送达
@@ -1620,6 +1678,14 @@ class SnowLumaAdapter(BaseAdapter):
         # 下游 reply/Using 也能按账户名精确路由，避免框架 _resolve_account
         # 匹配失败后静默回落到第一个启用账户（张冠李戴且无日志）
         onebot_event.setdefault("self", {})["account_id"] = account_name
+        if onebot_event.get("type") == "request" and onebot_event.get("request_id"):
+            self.remember_request(
+                onebot_event["request_id"],
+                request_type=onebot_event.get("detail_type", ""),
+                sub_type=onebot_event.get("sub_type"),
+                group_id=onebot_event.get("group_id"),
+                account=account_name,
+            )
         await adapter_mgr.emit(onebot_event)
 
     async def _poll_events(self, account_name: str):

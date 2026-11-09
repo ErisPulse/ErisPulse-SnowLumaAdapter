@@ -325,7 +325,7 @@ class SnowLumaConverter(BaseConverter):
             # OB12 标准元事件 connect/disconnect——这是协议标准形态，不是平台拓展
             base_event.update(
                 {
-                    "type": "meta_event",
+                    "type": "meta",
                     "detail_type": "connect" if sub_type == "online" else "disconnect",
                     "sub_type": sub_type,
                     "user_id": str(raw_event.get("user_id", "")),
@@ -461,7 +461,7 @@ class SnowLumaConverter(BaseConverter):
 
         base_event.update(
             {
-                "type": "meta_event",
+                "type": "meta",
                 "detail_type": detail_type,
                 f"{self.platform}_meta": raw_event,
             }
