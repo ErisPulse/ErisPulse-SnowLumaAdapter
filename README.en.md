@@ -1,3 +1,12 @@
+[//]: # (Archive notice)
+> **[Notice] This project is temporarily archived**
+>
+> Due to circumstances beyond our control, the upstream SnowLuma project has been made private. Out of respect for the SnowLuma project and its author, and for the open-source community, **ErisPulse-SnowLumaAdapter is temporarily archived as of today**.
+>
+> - Published releases remain available on PyPI; existing installations are unaffected
+> - While archived, the project will not accept new feature requests or issue reports
+> - Our respect goes to the SnowLuma author, and our thanks to the community for the company along the way
+
 [English](README.en.md) | 简体中文 | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [Русский](README.ru.md)
 
 <div align="center">

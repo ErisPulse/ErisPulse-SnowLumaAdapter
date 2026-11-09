@@ -1,3 +1,12 @@
+[//]: # (归档公告)
+> **[公告] 本项目暂时归档**
+>
+> 由于不可抗力因素，SnowLuma 上游项目已转为私有。出于对 SnowLuma 项目与其开发者的尊重，以及对开源社区的敬意，**ErisPulse-SnowLumaAdapter 自即日起暂时归档**。
+>
+> - 已发布的版本仍可在 PyPI 获取，现有用户的安装与使用不受影响
+> - 归档期间，项目不再接受新的功能请求与问题反馈
+> - 向 SnowLuma 作者致以敬意，感谢社区一路以来的陪伴与支持
+
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md) | [Русский](README.ru.md)
 
 <div align="center">
